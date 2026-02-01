@@ -1,134 +1,132 @@
 import streamlit as st
 import random
 import time
-from streamlit_autorefresh import st_autorefresh
 
-# --- Page Config & Styling ---
-st.set_page_config(page_title="Pro Space Shooter", layout="centered")
+# --- Page Configuration ---
+st.set_page_config(page_title="Space Shooter Pro", layout="centered")
 
-# JavaScript to capture key presses and click hidden buttons
-# This mimics the _kbhit() and _getch() functionality from your C++ code
-st.components.v1.html(
-    """
-    <script>
-    const doc = window.parent.document;
-    doc.addEventListener('keydown', function(e) {
-        if (e.key === 'ArrowLeft') {
-            doc.querySelector('button[kind="secondary"]:nth-child(1)').click();
-        } else if (e.key === 'ArrowRight') {
-            doc.querySelector('button[kind="secondary"]:nth-child(2)').click();
-        } else if (e.key === ' ') {
-            doc.querySelector('button[kind="secondary"]:nth-child(3)').click();
-        } else if (e.key === 'Enter') {
-            doc.querySelector('button[kind="primary"]').click();
-        }
-    });
-    </script>
-    """,
-    height=0,
-)
-
+# --- Custom Styling ---
 st.markdown("""
     <style>
-    .reportview-container { background: #000; }
-    .stCodeBlock { background-color: #000 !important; border: 1px solid #1f1f1f !important; }
+    .main { background-color: #0d1117; }
+    .stCodeBlock { background-color: #000000 !important; border: 2px solid #00ff00 !important; font-family: 'Courier New'; }
+    .score-text { color: #00ff00; font-size: 24px; font-weight: bold; }
+    .lives-text { color: #ff3333; font-size: 20px; font-weight: bold; }
+    .game-title { color: #00ffff; font-size: 32px; font-weight: bold; text-align: center; }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# --- Constants ---
-WIDTH = 30
-HEIGHT = 20
+# --- Game Constants ---
+WIDTH, HEIGHT = 25, 18
+MAX_LIVES = 3
 
-# --- Game State ---
+# --- Initialize Game State ---
 if 'player_x' not in st.session_state:
-    st.session_state.update({
-        'player_x': WIDTH // 2,
-        'bullets': [],
-        'enemies': [],
-        'score': 0,
-        'game_over': False,
-        'init': False
-    })
+    st.session_state.player_x = WIDTH // 2
+if 'bullets' not in st.session_state:
+    st.session_state.bullets = []
+if 'enemies' not in st.session_state:
+    st.session_state.enemies = []
+if 'score' not in st.session_state:
+    st.session_state.score = 0
+if 'lives' not in st.session_state:
+    st.session_state.lives = MAX_LIVES
+if 'game_over' not in st.session_state:
+    st.session_state.game_over = False
+if 'run_game' not in st.session_state:
+    st.session_state.run_game = False
+if 'level' not in st.session_state:
+    st.session_state.level = 1
 
-# --- Helper Functions ---
-def shoot():
-    st.session_state.bullets.append([st.session_state.player_x, HEIGHT - 2])
+# --- Core Functions ---
+def reset_game():
+    st.session_state.player_x = WIDTH // 2
+    st.session_state.bullets = []
+    st.session_state.enemies = []
+    st.session_state.score = 0
+    st.session_state.lives = MAX_LIVES
+    st.session_state.level = 1
+    st.session_state.game_over = False
+    st.session_state.run_game = True
 
-def move_left():
-    if st.session_state.player_x > 1: st.session_state.player_x -= 1
+def spawn_enemies():
+    spawn_chance = 0.05 + st.session_state.level * 0.01
+    if random.random() < spawn_chance:
+        st.session_state.enemies.append([random.randint(0, WIDTH-1), 0, random.choice([1, 2])])  # type 1 or 2
 
-def move_right():
-    if st.session_state.player_x < WIDTH - 2: st.session_state.player_x += 1
-
-def reset():
-    st.session_state.update({
-        'player_x': WIDTH // 2, 'bullets': [], 'enemies': [],
-        'score': 0, 'game_over': False, 'init': True
-    })
-
-# --- Auto-Update Engine ---
-# This refreshes the game state every 100ms (similar to Sleep(30))
-if st.session_state.init and not st.session_state.game_over:
-    st_autorefresh(interval=100, key="gameloop")
-
-# --- Game Logic Update ---
-if st.session_state.init and not st.session_state.game_over:
-    # Move Bullets
-    st.session_state.bullets = [[x, y-1] for x, y in st.session_state.bullets if y > 0]
+def update_game_step():
+    if st.session_state.game_over:
+        return
     
-    # Move Enemies
+    # Move bullets
+    st.session_state.bullets = [[x, y-1] for [x, y] in st.session_state.bullets if y > 0]
+
+    # Move enemies
     new_enemies = []
-    for ex, ey in st.session_state.enemies:
-        ey += 1
-        # Collision Check
-        if ex == st.session_state.player_x and ey >= HEIGHT - 1:
-            st.session_state.game_over = True
-        
+    for ex, ey, etype in st.session_state.enemies:
+        ey += 1 + (etype-1)*0  # type 2 can be faster in future
+        # Collision with player
+        if ey >= HEIGHT - 1 and ex == st.session_state.player_x:
+            st.session_state.lives -= 1
+            if st.session_state.lives <= 0:
+                st.session_state.game_over = True
+        # Collision with bullets
         hit = False
-        for b in st.session_state.bullets:
-            if b[0] == ex and (b[1] == ey or b[1] == ey - 1):
-                st.session_state.score += 10
-                st.session_state.bullets.remove(b)
+        for bx, by in st.session_state.bullets:
+            if bx == ex and by == ey:
+                st.session_state.score += 10 * etype
+                st.session_state.bullets.remove([bx, by])
                 hit = True
                 break
-        
         if not hit and ey < HEIGHT:
-            new_enemies.append([ex, ey])
+            new_enemies.append([ex, ey, etype])
     st.session_state.enemies = new_enemies
+    spawn_enemies()
 
-    # Spawn Enemies
-    if random.random() < 0.1:
-        st.session_state.enemies.append([random.randint(1, WIDTH-2), 0])
+# --- UI ---
+st.markdown("<div class='game-title'>👾 SPACE SHOOTER PRO 👾</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='score-text'>SCORE: {st.session_state.score}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='lives-text'>LIVES: {'❤️'*st.session_state.lives}</div>", unsafe_allow_html=True)
 
-# --- UI Rendering ---
-st.title("🚀 Keyboard Space Shooter")
-st.subheader(f"Score: {st.session_state.score}")
+board_placeholder = st.empty()
 
-# Render the Board
-grid = [[" " for _ in range(WIDTH)] for _ in range(HEIGHT)]
-# Draw Player
-grid[HEIGHT-1][st.session_state.player_x] = "A"
-# Draw Bullets
-for bx, by in st.session_state.bullets:
-    grid[by][bx] = "|"
-# Draw Enemies
-for ex, ey in st.session_state.enemies:
-    grid[ey][ex] = "V"
+# Controls
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    if st.button("⬅️ Left"):
+        if st.session_state.player_x > 0: st.session_state.player_x -= 1
+with col2:
+    if st.button("🔥 SHOOT"):
+        st.session_state.bullets.append([st.session_state.player_x, HEIGHT-2])
+with col3:
+    if st.button("➡️ Right"):
+        if st.session_state.player_x < WIDTH-1: st.session_state.player_x += 1
+with col4:
+    if st.button("🔴 Reset"):
+        reset_game()
 
-board_text = "\n".join(["".join(row) for row in grid])
-st.code(board_text, language="text")
+# --- Game Loop ---
+if st.session_state.run_game and not st.session_state.game_over:
+    update_game_step()
 
-# --- Hidden Controls (Used by JavaScript) ---
-# We keep these visible for manual play, but JS clicks them automatically
-col1, col2, col3 = st.columns(3)
-with col1: st.button("Left", on_click=move_left)
-with col2: st.button("Right", on_click=move_right)
-with col3: st.button("Space (Fire)", on_click=shoot)
+    # Render
+    grid = [[" " for _ in range(WIDTH)] for _ in range(HEIGHT)]
+    grid[HEIGHT-1][st.session_state.player_x] = "🚀"
+    for bx, by in st.session_state.bullets:
+        if 0 <= by < HEIGHT: grid[by][bx] = "¦"
+    for ex, ey, etype in st.session_state.enemies:
+        if 0 <= ey < HEIGHT: grid[ey][ex] = "👽" if etype==1 else "👾"
+    
+    board_placeholder.code("\n".join(["".join(row) for row in grid]), language="text")
 
-if st.session_state.game_over:
-    st.error("GAME OVER!")
-    st.button("Enter (Restart)", on_click=reset, type="primary")
-elif not st.session_state.init:
-    st.button("Enter (Start Game)", on_click=reset, type="primary")
+    # Speed control
+    time.sleep(0.1)
+    st.rerun()
 
-st.info("🎮 Use Arrow Keys to Move | Space to Shoot | Enter to Start/Restart")
+elif st.session_state.game_over:
+    board_placeholder.error(f"💥 GAME OVER! FINAL SCORE: {st.session_state.score}")
+    if st.button("PLAY AGAIN"):
+        reset_game()
+        st.rerun()
+else:
+    board_placeholder.info("Click '🔴 Reset' to start the game.")
